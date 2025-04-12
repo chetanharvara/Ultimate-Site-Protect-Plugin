@@ -14,7 +14,7 @@ defined('ABSPATH') or die('Direct access not allowed');
 
 /**
  * Ultimate Site Protect - The most reliable way to password protect your WordPress site
- * 
+
  * Features:
  * - Complete frontend protection with customizable login page
  * - Multiple user accounts with individual passwords
@@ -54,12 +54,12 @@ class Ultimate_Site_Protect {
         // add_action('init', [$this, 'clean_redirect_parameter']);
     }
 
-    // public function clean_redirect_parameter() {
-    //     if (isset($_GET['usp_redirect'])) {
-    //         wp_redirect(home_url('/'));
-    //         exit;
-    //     }
-    // }
+    public function clean_redirect_parameter() {
+        if (isset($_GET['usp_redirect'])) {
+            wp_redirect(home_url('/'));
+            exit;
+        }
+    }
 
     public function activate() {
         add_option('usp_user_pass_pairs', '{"admin":"password123"}');
@@ -79,16 +79,18 @@ class Ultimate_Site_Protect {
         $this->clear_auth_cookie();
     }
 
-    // private function clear_auth_cookie() {
-    //     if (isset($_COOKIE[$this->cookie_name])) {
-    //         unset($_COOKIE[$this->cookie_name]);
-    //     }
-    //     setcookie($this->cookie_name, '', time() - 3600, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
-    // }
-
     private function clear_auth_cookie() {
-        setcookie($this->cookie_name, '', time() - 3600, '/', $_SERVER['HTTP_HOST'], is_ssl(), true);
+        setcookie($this->cookie_name, '', time() - 3600, '/', $this->get_cookie_domain(), is_ssl(), true);
         unset($_COOKIE[$this->cookie_name]);
+    }
+
+    private function get_cookie_domain() {
+        $domain = parse_url(home_url(), PHP_URL_HOST);
+        // Handle subdomains by prefixing with . if not IP address
+        if (!preg_match('/\d+\.\d+\.\d+\.\d+/', $domain)) {
+            $domain = '.' . $domain;
+        }
+        return $domain;
     }
 
     private function create_auth_file() {
@@ -99,18 +101,8 @@ class Ultimate_Site_Protect {
 
         $login_url = esc_url(get_rest_url(null, 'usp/v1/login'));
         $home_url = esc_url(home_url('/'));
-        $custom_css = esc_html(get_option('usp_custom_css', ''));
+        $custom_css = $this->get_safe_custom_css();
         
-        
-        try {
-            $custom_css = get_option('usp_custom_css', '');
-            $custom_css = wp_strip_all_tags($custom_css); // Strip any HTML tags
-            $custom_css = sanitize_textarea_field($custom_css); // Sanitize CSS
-        } catch (Exception $e) {
-            error_log('USP: Error processing custom CSS - ' . $e->getMessage());
-            $custom_css = '';
-        }
-
         $auth_content = <<<HTML
 <!DOCTYPE html>
 <html lang="en">
@@ -262,6 +254,18 @@ HTML;
         return true;
     }
 
+    private function get_safe_custom_css() {
+        try {
+            $css = get_option('usp_custom_css', '');
+            $css = wp_strip_all_tags($css);
+            $css = preg_replace('/<\/?style>/i', '', $css);
+            return sanitize_textarea_field($css);
+        } catch (Exception $e) {
+            error_log('USP CSS Error: ' . $e->getMessage());
+            return '';
+        }
+    }
+
     public function check_access() {
         // Skip if protection is disabled
         if (get_option('usp_active') !== 'yes') {
@@ -283,10 +287,6 @@ HTML;
             return;
         }
 
-        // Skip if this is the redirect after successful login
-        // if (isset($_GET['usp_redirect'])) {
-        //     return;
-        // }
 
         // Check authentication
         if (!$this->is_authenticated()) {
@@ -330,7 +330,7 @@ HTML;
             'Site Protection',
             'manage_options',
             'ultimate-site-protect',
-            array($this, 'render_settings_page'),
+            [$this, 'render_settings_page'],
             'dashicons-shield',
             80
         );
@@ -347,9 +347,18 @@ HTML;
             'sanitize_callback' => 'absint'
         ]);
 
-        register_setting('usp_settings_group', 'usp_login_title');
-        register_setting('usp_settings_group', 'usp_custom_css');
-        register_setting('usp_settings_group', 'usp_active');
+        register_setting('usp_settings_group', 'usp_login_title', [
+            'sanitize_callback' => 'sanitize_text_field'
+        ]);
+
+        register_setting('usp_settings_group', 'usp_custom_css', [
+            'sanitize_callback' => [$this, 'sanitize_custom_css']
+        ]);
+
+        register_setting('usp_settings_group', 'usp_active', [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field'
+        ]);
 
         add_settings_section(
             'usp_main_section',
@@ -448,11 +457,9 @@ HTML;
     }
 
     public function sanitize_custom_css($css) {
-        // Basic CSS sanitization
         $css = wp_strip_all_tags($css);
-        $css = preg_replace('/<\/style>/i', '', $css);
-        $css = preg_replace('/<style[^>]*>/i', '', $css);
-        return $css;
+        $css = preg_replace('/<\/?style>/i', '', $css);
+        return sanitize_textarea_field($css);
     }
 
     public function render_user_pass_field() {
@@ -559,11 +566,11 @@ HTML;
     }
 
     public function register_rest_routes() {
-        register_rest_route('usp/v1', '/login', array(
+        register_rest_route('usp/v1', '/login', [
             'methods' => 'POST',
-            'callback' => array($this, 'handle_login_request'),
+            'callback' => [$this, 'handle_login_request'],
             'permission_callback' => '__return_true'
-        ));
+        ]);
     }
 
     public function handle_login_request($request) {
@@ -583,8 +590,7 @@ HTML;
                 $cookie_value,
                 $expiry,
                 '/',  // Root path
-                // parse_url(home_url(), PHP_URL_HOST), // Current domain
-                $_SERVER['HTTP_HOST'],
+                $this->get_cookie_domain(), 
                 is_ssl(),
                 true
             );

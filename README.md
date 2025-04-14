@@ -1,9 +1,9 @@
 <h1>Ultimate Site Protect - Complete WordPress Password Protection</h1>
 
-<h2>Description</h2>:
+<h2>Description</h2>
 Ultimate Site Protect is the most reliable solution to password protect your entire WordPress website. Designed for simplicity and security, this plugin allows you to:
 
-**🔒 Secure Your Entire Site**
+<h3>🔒 Secure Your Entire Site</h3>
  1. Password protect all frontend content
  2. Whitelist specific pages if needed
  3. Complete protection with just one click
